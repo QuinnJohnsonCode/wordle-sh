@@ -1,51 +1,13 @@
+#include "LetterColour.h"
+#include "Solver.h"
 #include <iostream>
 #include <fstream>
 #include <unordered_set>
+#include <unordered_map>
 #include <string>
 #include <random>
 #include <format>
 #include <algorithm>
-
-enum class Colour { NO_COLOUR, YELLOW, GREEN };
-
-class LetterColour
-{
-public:
-    char letter;
-    Colour colour;
-
-    LetterColour(char letter)
-    {
-        this->letter = letter;
-        this->colour = Colour::NO_COLOUR;
-    }
-
-    LetterColour(char letter, Colour colour)
-    {
-        this->letter = letter;
-        this->colour = colour;
-    }
-
-    std::string get_ansi_colour() 
-    {
-        // 32 = Green, 33 = Yellow
-        std::string ansi_code{};
-        switch (this->colour)
-        {
-            case Colour::GREEN:
-                ansi_code = std::format("\x1B[1;32m{}\033[0m", this->letter);
-                break;
-            case Colour::YELLOW:
-                ansi_code = std::format("\x1B[1;33m{}\033[0m", this->letter);
-                break;
-            case Colour::NO_COLOUR:
-                ansi_code = std::format("{}", this->letter);
-                break;
-        }
-
-        return ansi_code;
-    }
-};
 
 std::unordered_set<std::string> load_words_from_file(std::string path)
 {
@@ -150,15 +112,46 @@ void clear_screen_ansi()
     std::cout << "\x1B[2J\x1B[H";
 }
 
+std::string get_guess_from_user(std::unordered_set<std::string> &words)
+{
+    std::string guess;
+    // Get input from user
+    do {
+        // Ask user for guess
+        std::cout << "Guess: ";
+        std::cin >> guess;
+
+        // Convert guess to lowercase
+        std::transform(guess.begin(), guess.end(), guess.begin(), 
+        [](unsigned char c) {
+            return std::tolower(c);
+        });
+
+    } while (!check_valid_guess(words, guess));
+
+    return guess;
+}
+
+std::string get_guess_from_computer(Solver &solver, const std::vector<LetterColour> &previous_guess)
+{
+    return solver.get_best_word(previous_guess);
+}
+
 // Loops through a game of wordle with random_word as the chosen word
 // Returns:
 //  0 if the user loses, 1 if the user wins
-int wordle(std::unordered_set<std::string> &words, std::string random_word)
+int wordle(std::unordered_set<std::string> &words, std::string random_word, int computer)
 {
-    // Give user 5 guesses
-    int guesses = 5;
+    // Instantiate a new solver entity
+    Solver solver;
+    if (computer)
+        solver.set_filter_words(words);
+
+    // Give user 6 guesses
+    int guesses = 6;
     std::string guess;
     std::vector<std::string> previous_guesses{};
+    std::vector<LetterColour> previous_guess{};
 
     while (guesses > 0)
     {
@@ -168,20 +161,14 @@ int wordle(std::unordered_set<std::string> &words, std::string random_word)
         for (std::string guess : previous_guesses)
             std::cout << guess << '\n';
 
-        // Get input from user
-        do {
-            // Ask user for guess
-            std::cout << "Guess: ";
-            std::cin >> guess;
+        if (!computer)
+            guess = get_guess_from_user(words);
+        else
+        {
+            guess = get_guess_from_computer(solver, previous_guess);
+            std::cout << "Computer guess: " << guess << '\n';
+        }
 
-            // Convert guess to lowercase
-            std::transform(guess.begin(), guess.end(), guess.begin(), 
-            [](unsigned char c) {
-                return std::tolower(c);
-            });
-
-        } while (!check_valid_guess(words, guess));
-        
         // Check if the guess is correct
         if (guess == random_word)
             return 1;
@@ -189,9 +176,10 @@ int wordle(std::unordered_set<std::string> &words, std::string random_word)
         // Deduct for incorrect guess
         --guesses;
 
-        std::string letter_colours = string_letter_colours(get_letter_colours(guess, random_word));
-        std::cout << letter_colours << '\n';
+        previous_guess = get_letter_colours(guess, random_word);
+        std::string letter_colours = string_letter_colours(previous_guess);
 
+        // Set previous_guess to the letter_colours
         // Add the guess to the previous_guesses vector
         previous_guesses.push_back(letter_colours);
     }
@@ -203,12 +191,16 @@ int main(int argc, char *argv[])
 {
     // Flags
     int debug = 0;
+    int computer = 0;
     // 
     for (int i = 0; i < argc; ++i)
     {
         std::string arg = argv[i];
         if (arg == "-d")
             debug = 1;
+
+        if (arg == "-c")
+            computer = 1;
     }
 
     // Load set of words into memory set
@@ -234,9 +226,11 @@ int main(int argc, char *argv[])
     std::cin.get();
 
     // Loop through game
-    int is_win = wordle(words, random_word);
+    int is_win = 0;
+    is_win = wordle(words, random_word, computer);
 
     // Print out results
+    std::cout << "The word was " << random_word << ".\n";
     if (is_win)
         std::cout << "You win!\n";
     else
